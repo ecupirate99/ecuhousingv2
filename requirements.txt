@@ -1,15 +1,10 @@
 fastapi
-uvicorn
 python-multipart
 llama-index-core
 llama-index-llms-groq
-llama-index-embeddings-google
 llama-index-vector-stores-postgres
 supabase
 pypdf
-python-dotenv
-google-generativeai
-pydantic
+httpx
 psycopg2-binary
-sqlalchemy
 pgvector
