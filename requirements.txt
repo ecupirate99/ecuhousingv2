@@ -1,0 +1,12 @@
+fastapi
+uvicorn
+python-multipart
+llama-index
+llama-index-llms-groq
+llama-index-embeddings-google
+llama-index-vector-stores-supabase
+supabase
+pymupdf
+python-dotenv
+google-generativeai
+pydantic
