@@ -1,10 +1,11 @@
 import os
 
-# Vercel specific: titktone needs a writable cache directory
+# Vercel specific: tiktoken needs a writable cache directory
 os.environ["TIKTOKEN_CACHE_DIR"] = "/tmp"
 
 import json
 import pypdf
+import httpx
 from llama_index.core import (
     VectorStoreIndex,
     StorageContext,
@@ -13,11 +14,55 @@ from llama_index.core import (
 )
 from llama_index.core.node_parser import TokenTextSplitter
 from llama_index.llms.groq import Groq
-from llama_index.embeddings.google import GeminiEmbedding
+from llama_index.core.embeddings import BaseEmbedding
 from llama_index.vector_stores.postgres import PGVectorStore
 from supabase import create_client, Client
 import asyncio
-from typing import List, Generator
+from typing import List, Generator, Any
+
+# Lightweight Custom Gemini Embedding to avoid heavy Google SDK dependencies
+class LiteGeminiEmbedding(BaseEmbedding):
+    _api_key: str = ""
+    _model_name: str = "models/embedding-001"
+
+    def __init__(self, api_key: str, model_name: str = "models/embedding-001", **kwargs: Any):
+        super().__init__(**kwargs)
+        self._api_key = api_key
+        self._model_name = model_name
+
+    def _get_query_embedding(self, query: str) -> List[float]:
+        return self._get_text_embedding(query)
+
+    async def _aget_query_embedding(self, query: str) -> List[float]:
+        return await self._aget_text_embedding(query)
+
+    def _get_text_embedding(self, text: str) -> List[float]:
+        url = f"https://generativelanguage.googleapis.com/v1beta/{self._model_name}:embedContent?key={self._api_key}"
+        headers = {'Content-Type': 'application/json'}
+        payload = {
+            "model": self._model_name,
+            "content": {"parts": [{"text": text}]}
+        }
+        with httpx.Client() as client:
+            response = client.post(url, headers=headers, json=payload)
+            response.raise_for_status()
+            return response.json()['embedding']['values']
+
+    async def _aget_text_embedding(self, text: str) -> List[float]:
+        url = f"https://generativelanguage.googleapis.com/v1beta/{self._model_name}:embedContent?key={self._api_key}"
+        headers = {'Content-Type': 'application/json'}
+        payload = {
+            "model": self._model_name,
+            "content": {"parts": [{"text": text}]}
+        }
+        async with httpx.AsyncClient() as client:
+            response = await client.post(url, headers=headers, json=payload, timeout=60.0)
+            response.raise_for_status()
+            return response.json()['embedding']['values']
+
+    def _get_text_embeddings(self, texts: List[str]) -> List[List[float]]:
+        # For simplicity in Lite version, embed one by one or batch if needed
+        return [self._get_text_embedding(t) for t in texts]
 
 class RAGEngine:
     def __init__(self):
@@ -29,27 +74,17 @@ class RAGEngine:
             self.groq_api_key = os.getenv("GROQ_API_KEY")
             
             # Basic validation
-            missing_vars = []
-            if not self.supabase_url: missing_vars.append("SUPABASE_URL")
-            if not self.supabase_key: missing_vars.append("SUPABASE_ANON_KEY")
-            if not self.google_api_key: missing_vars.append("GOOGLE_API_KEY")
-            if not self.groq_api_key: missing_vars.append("GROQ_API_KEY")
-            
-            if missing_vars:
-                raise ValueError(f"Missing required environment variables: {', '.join(missing_vars)}. Please check your Vercel/Local settings.")
+            if not all([self.supabase_url, self.supabase_key, self.google_api_key, self.groq_api_key]):
+                raise ValueError("Missing required environment variables.")
 
-            # Initialize Supabase Client (for storage and direct queries)
+            # Initialize Supabase Client (for storage)
             self.supabase_client: Client = create_client(self.supabase_url, self.supabase_key)
             
             # Initialize LlamaIndex Settings
             self.setup_settings()
             
             # Initialize Vector Store
-            db_url = self.get_postgres_url()
-            if not db_url:
-                raise ValueError("SUPABASE_DB_URL is not set. Database connection is required.")
-                
-            # Use PGVectorStore instead of SupabaseVectorStore to avoid 'vecs' dependency issues on Vercel
+            db_url = os.getenv("SUPABASE_DB_URL") or self.get_postgres_url()
             self.vector_store = PGVectorStore(
                 connection_string=db_url,
                 table_name="vec_documents",
@@ -66,17 +101,9 @@ class RAGEngine:
             )
         except Exception as e:
             print(f"CRITICAL: RAGEngine init failed: {e}")
-            import traceback
-            traceback.print_exc()
             raise e
 
     def get_postgres_url(self):
-        # Use the direct DB URL if provided in .env (recommended for Supabase Pooler)
-        db_url = os.getenv("SUPABASE_DB_URL")
-        if db_url:
-            return db_url
-            
-        # Fallback to constructing it from parts
         project_ref = self.supabase_url.split("//")[1].split(".")[0]
         password = os.getenv("SUPABASE_DB_PASSWORD")
         return f"postgresql://postgres:{password}@db.{project_ref}.supabase.co:5432/postgres"
@@ -85,78 +112,51 @@ class RAGEngine:
         # LLM - Groq
         Settings.llm = Groq(model="llama-3.3-70b-versatile", api_key=self.groq_api_key)
         
-        # Embedding - Gemini
-        Settings.embed_model = GeminiEmbedding(
-            model_name="models/gemini-embedding-001",
-            api_key=self.google_api_key
-        )
+        # Lightweight Embedding - Custom LiteGemini
+        Settings.embed_model = LiteGeminiEmbedding(api_key=self.google_api_key)
         
         # Chunking Strategy
         Settings.node_parser = TokenTextSplitter(
-            chunk_size=900,  # 800-1000 range
-            chunk_overlap=175  # 150-200 range
+            chunk_size=900,
+            chunk_overlap=175
         )
 
     async def process_and_index_pdf(self, file_path: str, filename: str):
         print(f"Starting processing for {filename}...")
-        # 1. Parse PDF with pypdf (much lighter than PyMuPDF)
         reader = pypdf.PdfReader(file_path)
         documents = []
         
         for page_num, page in enumerate(reader.pages):
             text = page.extract_text()
-            # Create a Document for each page to preserve page metadata
             metadata = {
                 "filename": filename,
                 "page_number": page_num + 1,
                 "total_pages": len(reader.pages)
             }
             documents.append(Document(text=text, metadata=metadata))
-        print(f"Parsed {len(documents)} pages.")
         
-        # 2. Upload to Supabase Storage (Optional but requested: "Store file in Supabase Storage")
+        # Upload to Supabase Storage
         try:
-            print("Uploading to Supabase Storage...")
             with open(file_path, "rb") as f:
                 self.supabase_client.storage.from_("ecu_handbooks").upload(filename, f, {"upsert": "true"})
-            print("Upload successful.")
         except Exception as e:
             print(f"Supabase Storage warning: {e}")
-            print("Indexing will continue anyway.")
-            # We don't raise here so indexing can still proceed
 
-        # 3. Create Nodes and Insert into Vector DB
-        # This uses the Settings.node_parser and Settings.embed_model automatically
-        print("Inserting nodes into Vector DB (this involves embedding)...")
-        try:
-            nodes = Settings.node_parser.get_nodes_from_documents(documents)
-            print(f"Generated {len(nodes)} nodes. Inserting in batches to avoid API quota limits...")
-            
-            # Insert in small batches with delays to avoid 429 ResourceExhausted errors
-            batch_size = 5
-            for i in range(0, len(nodes), batch_size):
-                batch = nodes[i:i + batch_size]
-                self.index.insert_nodes(batch)
-                print(f"Successfully indexed nodes {i+1} to {min(i + batch_size, len(nodes))}")
-                
-                if i + batch_size < len(nodes):
-                    # Adaptive delay: shorter for small batches, longer if we're deeper in
-                    await asyncio.sleep(4) 
-                    
-            print("All nodes inserted successfully.")
-        except Exception as e:
-            print(f"Vector DB insertion error: {e}")
-            raise e
+        # Indexing
+        nodes = Settings.node_parser.get_nodes_from_documents(documents)
+        batch_size = 10
+        for i in range(0, len(nodes), batch_size):
+            batch = nodes[i:i + batch_size]
+            self.index.insert_nodes(batch)
+            if i + batch_size < len(nodes):
+                await asyncio.sleep(2) # Prevent rate limits
         
-        # Re-initialize the index to ensure it picks up new nodes (or use from_vector_store)
         self.index = VectorStoreIndex.from_vector_store(
             vector_store=self.vector_store,
             storage_context=self.storage_context
         )
-        print("Index re-initialized.")
 
     async def chat_stream(self, query: str, model_name: str = "llama-3.3-70b-versatile"):
-        # Update LLM if model changed
         if model_name != Settings.llm.model:
             Settings.llm = Groq(model=model_name, api_key=self.groq_api_key)
         
@@ -168,31 +168,20 @@ class RAGEngine:
                 "You must provide answers based STRICTLY on the ECU Residence Hall Handbook provided in the context. "
                 "If the answer is not available in the ECU Residence Hall Handbook, "
                 "respond with: 'The answer is not available in the ECU Residence Hall Handbook.' "
-                "Do not hallucinate or use outside knowledge. "
                 "Always include source citations in your response."
             )
         )
         
-        # Use aquery for async retrieval
         response = await query_engine.aquery(query)
-        
-        # Stream the response using the async generator
         async for text in response.response_gen:
             yield f"data: {json.dumps({'text': text})}\n\n"
         
-        # Prepare Citations AFTER streaming (or alongside)
         citations = []
         for node in response.source_nodes:
-            metadata = node.metadata
-            filename = metadata.get("filename", "Unknown")
-            page = metadata.get("page_number", "unknown")
-            citation = f"(Source: {filename}, Page {page})"
-            if citation not in citations:
-                citations.append(citation)
+            m = node.metadata
+            citations.append(f"(Source: {m.get('filename', 'Doc')}, Page {m.get('page_number', '?')})")
         
-        # Send citations at the end
         if citations:
-            citation_text = "\n\n" + "\n".join(citations)
-            yield f"data: {json.dumps({'text': citation_text, 'done': True})}\n\n"
+            yield f"data: {json.dumps({'text': '\n\n' + '\n'.join(list(set(citations))), 'done': True})}\n\n"
         else:
             yield f"data: {json.dumps({'text': '', 'done': True})}\n\n"
