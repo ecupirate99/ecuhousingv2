@@ -24,8 +24,30 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Initialize RAG Engine
-rag_engine = RAGEngine()
+# Initialize RAG Engine lazily or handle boot failure
+rag_engine = None
+rag_engine_error = None
+
+def get_rag_engine():
+    global rag_engine, rag_engine_error
+    if rag_engine is None:
+        try:
+            rag_engine = RAGEngine()
+            rag_engine_error = None
+        except Exception as e:
+            rag_engine_error = str(e)
+            print(f"RAGEngine Initialization Error: {e}")
+    return rag_engine
+
+@app.get("/health")
+def health_check():
+    engine = get_rag_engine()
+    return {
+        "status": "healthy" if engine else "error",
+        "engine_initialized": engine is not None,
+        "error": rag_engine_error,
+        "environment": "production" if os.getenv("VERCEL") else "development"
+    }
 
 class ChatRequest(BaseModel):
     message: str
@@ -33,6 +55,10 @@ class ChatRequest(BaseModel):
 
 @app.post("/upload")
 async def upload_pdf(file: UploadFile = File(...)):
+    engine = get_rag_engine()
+    if not engine:
+        raise HTTPException(status_code=500, detail=f"RAG Engine not initialized: {rag_engine_error}")
+        
     print(f"Received upload request for: {file.filename}")
     if not file.filename.endswith(".pdf"):
         raise HTTPException(status_code=400, detail="Only PDF files are allowed.")
@@ -46,7 +72,7 @@ async def upload_pdf(file: UploadFile = File(...)):
         
         # Process PDF and insert into Supabase
         print("Starting process_and_index_pdf...")
-        await rag_engine.process_and_index_pdf(temp_path, file.filename)
+        await engine.process_and_index_pdf(temp_path, file.filename)
         print("File processed successfully.")
         
         # Clean up
@@ -67,10 +93,14 @@ async def upload_pdf(file: UploadFile = File(...)):
 
 @app.post("/chat")
 async def chat(request: ChatRequest):
+    engine = get_rag_engine()
+    if not engine:
+        raise HTTPException(status_code=500, detail=f"RAG Engine not initialized: {rag_engine_error}")
+        
     try:
         # Use generator for streaming
         return StreamingResponse(
-            rag_engine.chat_stream(request.message, request.model),
+            engine.chat_stream(request.message, request.model),
             media_type="text/event-stream"
         )
     except Exception as e:
