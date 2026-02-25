@@ -5,8 +5,10 @@ A RAG-powered (Retrieval-Augmented Generation) chatbot designed to answer questi
 ## 🚀 Features
 - **PDF Indexing**: Upload any handbook PDF to index into a Supabase Vector Store.
 - **Smart Chat**: Powered by Groq (Llama 3.3 70B) and Google Gemini Embeddings.
-- **ECU Branded UI**: A clean, light-mode interface matching ECU Housing aesthetics.
+- **Real-time Streaming**: Instant word-by-word responses using FastAPI StreamingResponse.
+- **ECU Branded UI**: A clean, mobile-optimized light-mode interface matching ECU Housing aesthetics.
 - **Citations**: Always provides source page numbers for its answers.
+- **Health Check Diagnostics**: Accessible at `/health` for easy environment debugging.
 
 ## 🛠 Tech Stack
 - **Backend**: FastAPI (Python)

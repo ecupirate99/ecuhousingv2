@@ -10,7 +10,7 @@ CREATE TABLE IF NOT EXISTS vec_documents (
   id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
   content text NOT NULL,
   metadata jsonb,
-  embedding vector(768) -- 768 is the dimension for Google's models/embedding-001
+  embedding vector(3072) -- 3072 is the dimension for Google Gemini Embedding models
 );
 
 -- 3. Create an index for faster similarity search

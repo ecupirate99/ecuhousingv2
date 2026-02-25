@@ -101,7 +101,12 @@ async def chat(request: ChatRequest):
         # Use generator for streaming
         return StreamingResponse(
             engine.chat_stream(request.message, request.model),
-            media_type="text/event-stream"
+            media_type="text/event-stream",
+            headers={
+                "X-Accel-Buffering": "no",
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+            }
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
