@@ -170,9 +170,14 @@ class RAGEngine:
             )
         )
         
-        response = query_engine.query(query)
+        # Use aquery for async retrieval
+        response = await query_engine.aquery(query)
         
-        # Prepare Citations
+        # Stream the response using the async generator
+        async for text in response.response_gen:
+            yield f"data: {json.dumps({'text': text})}\n\n"
+        
+        # Prepare Citations AFTER streaming (or alongside)
         citations = []
         for node in response.source_nodes:
             metadata = node.metadata
@@ -182,10 +187,9 @@ class RAGEngine:
             if citation not in citations:
                 citations.append(citation)
         
-        # Stream the response
-        for text in response.response_gen:
-            yield f"data: {json.dumps({'text': text})}\n\n"
-        
         # Send citations at the end
-        citation_text = "\n\n" + "\n".join(citations)
-        yield f"data: {json.dumps({'text': citation_text, 'done': True})}\n\n"
+        if citations:
+            citation_text = "\n\n" + "\n".join(citations)
+            yield f"data: {json.dumps({'text': citation_text, 'done': True})}\n\n"
+        else:
+            yield f"data: {json.dumps({'text': '', 'done': True})}\n\n"
