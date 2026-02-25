@@ -1,4 +1,8 @@
 import os
+
+# Vercel specific: titktone needs a writable cache directory
+os.environ["TIKTOKEN_CACHE_DIR"] = "/tmp"
+
 import json
 import fitz  # PyMuPDF
 from llama_index.core import (
@@ -24,6 +28,16 @@ class RAGEngine:
             self.google_api_key = os.getenv("GOOGLE_API_KEY")
             self.groq_api_key = os.getenv("GROQ_API_KEY")
             
+            # Basic validation
+            missing_vars = []
+            if not self.supabase_url: missing_vars.append("SUPABASE_URL")
+            if not self.supabase_key: missing_vars.append("SUPABASE_ANON_KEY")
+            if not self.google_api_key: missing_vars.append("GOOGLE_API_KEY")
+            if not self.groq_api_key: missing_vars.append("GROQ_API_KEY")
+            
+            if missing_vars:
+                raise ValueError(f"Missing required environment variables: {', '.join(missing_vars)}. Please check your Vercel/Local settings.")
+
             # Initialize Supabase Client (for storage and direct queries)
             self.supabase_client: Client = create_client(self.supabase_url, self.supabase_key)
             
@@ -31,8 +45,12 @@ class RAGEngine:
             self.setup_settings()
             
             # Initialize Vector Store
+            db_url = self.get_postgres_url()
+            if not db_url:
+                raise ValueError("SUPABASE_DB_URL is not set. Database connection is required.")
+                
             self.vector_store = SupabaseVectorStore(
-                postgres_connection_string=self.get_postgres_url(),
+                postgres_connection_string=db_url,
                 collection_name="vec_documents"
             )
             self.storage_context = StorageContext.from_defaults(vector_store=self.vector_store)
