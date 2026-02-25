@@ -14,7 +14,7 @@ from llama_index.core import (
 from llama_index.core.node_parser import TokenTextSplitter
 from llama_index.llms.groq import Groq
 from llama_index.embeddings.google import GeminiEmbedding
-from llama_index.vector_stores.supabase import SupabaseVectorStore
+from llama_index.vector_stores.postgres import PGVectorStore
 from supabase import create_client, Client
 import asyncio
 from typing import List, Generator
@@ -49,9 +49,13 @@ class RAGEngine:
             if not db_url:
                 raise ValueError("SUPABASE_DB_URL is not set. Database connection is required.")
                 
-            self.vector_store = SupabaseVectorStore(
-                postgres_connection_string=db_url,
-                table_name="vec_documents"
+            # Use PGVectorStore instead of SupabaseVectorStore to avoid 'vecs' dependency issues on Vercel
+            self.vector_store = PGVectorStore(
+                connection_string=db_url,
+                table_name="vec_documents",
+                embed_dim=768,
+                text_column="content",
+                metadata_column="metadata"
             )
             self.storage_context = StorageContext.from_defaults(vector_store=self.vector_store)
             
