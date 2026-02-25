@@ -6,7 +6,7 @@ llama-index-llms-groq
 llama-index-embeddings-google
 llama-index-vector-stores-postgres
 supabase
-pymupdf
+pypdf
 python-dotenv
 google-generativeai
 pydantic
