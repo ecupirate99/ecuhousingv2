@@ -4,7 +4,7 @@ python-multipart
 llama-index-core
 llama-index-llms-groq
 llama-index-embeddings-google
-llama-index-vector-stores-supabase
+llama-index-vector-stores-postgres
 supabase
 pymupdf
 python-dotenv
@@ -12,3 +12,4 @@ google-generativeai
 pydantic
 psycopg2-binary
 sqlalchemy
+pgvector
