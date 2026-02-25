@@ -51,7 +51,7 @@ class RAGEngine:
                 
             self.vector_store = SupabaseVectorStore(
                 postgres_connection_string=db_url,
-                collection_name="vec_documents"
+                table_name="vec_documents"
             )
             self.storage_context = StorageContext.from_defaults(vector_store=self.vector_store)
             
