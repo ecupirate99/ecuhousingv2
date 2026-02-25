@@ -8,7 +8,6 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-import uvicorn
 
 # Import our custom RAG engine
 from utils.rag_engine import RAGEngine
@@ -117,4 +116,8 @@ async def chat(request: ChatRequest):
 app.mount("/", StaticFiles(directory="static", html=True), name="static")
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    try:
+        import uvicorn
+        uvicorn.run(app, host="0.0.0.0", port=8000)
+    except ImportError:
+        print("uvicorn not installed. Use 'pip install uvicorn' to run locally.")

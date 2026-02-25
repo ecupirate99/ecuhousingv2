@@ -8,3 +8,5 @@ pypdf
 httpx
 psycopg2-binary
 pgvector
+python-dotenv
+pydantic
