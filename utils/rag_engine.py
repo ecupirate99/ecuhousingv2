@@ -4,7 +4,7 @@ import os
 os.environ["TIKTOKEN_CACHE_DIR"] = "/tmp"
 
 import json
-import fitz  # PyMuPDF
+import pypdf
 from llama_index.core import (
     VectorStoreIndex,
     StorageContext,
@@ -99,20 +99,19 @@ class RAGEngine:
 
     async def process_and_index_pdf(self, file_path: str, filename: str):
         print(f"Starting processing for {filename}...")
-        # 1. Parse PDF with PyMuPDF
-        doc = fitz.open(file_path)
+        # 1. Parse PDF with pypdf (much lighter than PyMuPDF)
+        reader = pypdf.PdfReader(file_path)
         documents = []
         
-        for page_num, page in enumerate(doc):
-            text = page.get_text()
+        for page_num, page in enumerate(reader.pages):
+            text = page.extract_text()
             # Create a Document for each page to preserve page metadata
             metadata = {
                 "filename": filename,
                 "page_number": page_num + 1,
-                "total_pages": len(doc)
+                "total_pages": len(reader.pages)
             }
             documents.append(Document(text=text, metadata=metadata))
-        doc.close()
         print(f"Parsed {len(documents)} pages.")
         
         # 2. Upload to Supabase Storage (Optional but requested: "Store file in Supabase Storage")
