@@ -63,25 +63,27 @@ async def upload_pdf(file: UploadFile = File(...)):
     if not file.filename.endswith(".pdf"):
         raise HTTPException(status_code=400, detail="Only PDF files are allowed.")
     
-    temp_path = f"temp_{file.filename}"
+    # Vercel has a read-only filesystem except for /tmp
+    temp_path = os.path.join("/tmp", f"temp_{file.filename}")
     try:
-        # Save file temporarily or stream it
+        # Save file temporarily
         print(f"Saving temporary file to: {temp_path}")
         with open(temp_path, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
         
         # Process PDF and insert into Supabase
-        print("Starting process_and_index_pdf...")
+        print(f"Starting process_and_index_pdf for {file.filename}...")
         await engine.process_and_index_pdf(temp_path, file.filename)
         print("File processed successfully.")
         
         # Clean up
         if os.path.exists(temp_path):
             os.remove(temp_path)
+            print(f"Temporary file {temp_path} removed.")
         
         return {"status": "success", "message": f"File {file.filename} processed and indexed successfully."}
     except Exception as e:
-        print(f"ERROR during upload: {e}")
+        print(f"ERROR during upload: {str(e)}")
         import traceback
         traceback.print_exc()
         if os.path.exists(temp_path):

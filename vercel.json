@@ -10,18 +10,26 @@
             "use": "@vercel/static"
         }
     ],
-    "routes": [
+    "rewrites": [
         {
-            "src": "/upload",
-            "dest": "main.py"
+            "source": "/chat",
+            "destination": "/main.py"
         },
         {
-            "src": "/chat",
-            "dest": "main.py"
+            "source": "/upload",
+            "destination": "/main.py"
         },
         {
-            "src": "/(.*)",
-            "dest": "static/$1"
+            "source": "/health",
+            "destination": "/main.py"
+        },
+        {
+            "source": "/",
+            "destination": "/static/index.html"
+        },
+        {
+            "source": "/(.*)",
+            "destination": "/static/$1"
         }
     ]
 }
